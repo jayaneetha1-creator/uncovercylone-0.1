@@ -1,5 +1,4 @@
 import Database from 'better-sqlite3';
-import mysql, { Pool } from 'mysql2/promise';
 import path from 'path';
 import fs from 'fs';
 
@@ -11,53 +10,20 @@ function ensureDataDir() {
   }
 }
 
-// -------------------------------------------------------------
-// Database Drivers & Dual-Engine Connectivity
-// -------------------------------------------------------------
+let db: Database.Database | null = null;
 
-let sqliteDb: Database.Database | null = null;
-let mysqlPool: Pool | null = null;
-
-export function isMySqlEnabled(): boolean {
-  return process.env.DB_TYPE === 'mysql' || Boolean(process.env.MYSQL_HOST);
-}
-
-/**
- * Returns MySQL connection pool when MySQL mode is active.
- */
-export function getPool(): Pool {
-  if (!mysqlPool) {
-    const config = {
-      host: process.env.MYSQL_HOST || '127.0.0.1',
-      port: parseInt(process.env.MYSQL_PORT || '3306', 10),
-      user: process.env.MYSQL_USER || 'uncoverceylon',
-      password: process.env.MYSQL_PASSWORD || '',
-      database: process.env.MYSQL_DATABASE || 'uncoverceylon',
-      waitForConnections: true,
-      connectionLimit: 10,
-      queueLimit: 0,
-      charset: 'utf8mb4',
-    };
-    mysqlPool = mysql.createPool(config);
-  }
-  return mysqlPool;
-}
-
-/**
- * Backward-compatible SQLite instance getter.
- */
 export function getDb(): Database.Database {
-  if (!sqliteDb) {
+  if (!db) {
     ensureDataDir();
     const DB_PATH = path.join(DATA_DIR, 'uncoverceylon.db');
-    sqliteDb = new Database(DB_PATH);
-    sqliteDb.pragma('journal_mode = WAL');
-    initializeSqliteDb(sqliteDb);
+    db = new Database(DB_PATH);
+    db.pragma('journal_mode = WAL');
+    initializeDb(db);
   }
-  return sqliteDb;
+  return db;
 }
 
-function initializeSqliteDb(database: Database.Database) {
+function initializeDb(database: Database.Database) {
   database.exec(`
     CREATE TABLE IF NOT EXISTS hero_slides (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -124,440 +90,295 @@ function initializeSqliteDb(database: Database.Database) {
       actor TEXT DEFAULT 'Admin',
       created_at TEXT DEFAULT (datetime('now'))
     );
-
-    CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL,
-      name TEXT NOT NULL,
-      role TEXT NOT NULL DEFAULT 'user',
-      country TEXT DEFAULT 'Sri Lanka',
-      avatar TEXT DEFAULT '',
-      status TEXT DEFAULT 'unverified',
-      email_verified_at TEXT NULL,
-      must_change_password INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS sessions (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NOT NULL,
-      expires_at TEXT NOT NULL,
-      ip_address TEXT DEFAULT '',
-      user_agent TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS email_tokens (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      token TEXT NOT NULL UNIQUE,
-      type TEXT NOT NULL,
-      new_email TEXT NULL,
-      expires_at TEXT NOT NULL,
-      used_at TEXT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS change_requests (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      action_type TEXT NOT NULL,
-      entity_type TEXT NOT NULL,
-      entity_id INTEGER NOT NULL,
-      reason TEXT NOT NULL,
-      status TEXT DEFAULT 'pending',
-      reviewed_by INTEGER NULL,
-      reviewed_at TEXT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS trash (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_type TEXT NOT NULL,
-      entity_id INTEGER NOT NULL,
-      entity_data TEXT NOT NULL,
-      deleted_by INTEGER NOT NULL,
-      deleted_at TEXT DEFAULT (datetime('now')),
-      expires_at TEXT NOT NULL,
-      FOREIGN KEY (deleted_by) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS versions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      entity_type TEXT NOT NULL,
-      entity_id INTEGER NOT NULL,
-      version_num INTEGER NOT NULL,
-      snapshot TEXT NOT NULL,
-      created_by INTEGER NOT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NULL,
-      recipient_role TEXT NULL,
-      type TEXT NOT NULL,
-      title TEXT NOT NULL,
-      body TEXT NOT NULL,
-      link TEXT DEFAULT '',
-      payload TEXT NULL,
-      is_read INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS audit_log (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NULL,
-      user_email TEXT DEFAULT '',
-      user_role TEXT DEFAULT '',
-      action TEXT NOT NULL,
-      entity_type TEXT NOT NULL,
-      entity_id TEXT DEFAULT '',
-      details TEXT NOT NULL,
-      ip_address TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS site_nodes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      parent_id INTEGER NULL,
-      node_key TEXT NOT NULL UNIQUE,
-      type TEXT NOT NULL,
-      title_en TEXT NOT NULL,
-      title_si TEXT NOT NULL,
-      enabled INTEGER DEFAULT 1,
-      sort_order INTEGER DEFAULT 0,
-      default_open INTEGER DEFAULT 1,
-      priority INTEGER DEFAULT 0,
-      device_visibility TEXT DEFAULT 'all',
-      config TEXT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (parent_id) REFERENCES site_nodes(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS review_photos (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      review_id INTEGER NOT NULL,
-      image_url TEXT NOT NULL,
-      sort_order INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS review_replies (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      review_id INTEGER NOT NULL UNIQUE,
-      author_id INTEGER NOT NULL,
-      reply_text TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE,
-      FOREIGN KEY (author_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS review_votes (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      review_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      vote_type TEXT NOT NULL DEFAULT 'helpful',
-      created_at TEXT DEFAULT (datetime('now')),
-      UNIQUE(review_id, user_id, vote_type),
-      FOREIGN KEY (review_id) REFERENCES reviews(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS place_questions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      place_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      question TEXT NOT NULL,
-      status TEXT DEFAULT 'approved',
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (place_id) REFERENCES places(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS place_answers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      question_id INTEGER NOT NULL,
-      user_id INTEGER NOT NULL,
-      answer TEXT NOT NULL,
-      is_team INTEGER DEFAULT 0,
-      status TEXT DEFAULT 'approved',
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (question_id) REFERENCES place_questions(id) ON DELETE CASCADE,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS chat_threads (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NOT NULL,
-      status TEXT DEFAULT 'open',
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS chat_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      thread_id INTEGER NOT NULL,
-      sender_id INTEGER NOT NULL,
-      sender_role TEXT NOT NULL,
-      message_text TEXT NOT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (thread_id) REFERENCES chat_threads(id) ON DELETE CASCADE,
-      FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      place_id INTEGER NULL,
-      user_id INTEGER NULL,
-      session_id TEXT NOT NULL,
-      event_type TEXT NOT NULL,
-      source TEXT DEFAULT '',
-      dwell_time INTEGER DEFAULT 0,
-      metadata TEXT NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (place_id) REFERENCES places(id) ON DELETE SET NULL,
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS journeys (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NULL,
-      session_id TEXT NOT NULL UNIQUE,
-      path TEXT NOT NULL,
-      updated_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS place_transitions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      from_place_id INTEGER NOT NULL,
-      to_place_id INTEGER NOT NULL,
-      count INTEGER DEFAULT 1,
-      updated_at TEXT DEFAULT (datetime('now')),
-      UNIQUE(from_place_id, to_place_id),
-      FOREIGN KEY (from_place_id) REFERENCES places(id) ON DELETE CASCADE,
-      FOREIGN KEY (to_place_id) REFERENCES places(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS recommendation_cache (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      cache_key TEXT NOT NULL UNIQUE,
-      data TEXT NOT NULL,
-      expires_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS ads (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      placement TEXT NOT NULL,
-      title_en TEXT NOT NULL,
-      title_si TEXT DEFAULT '',
-      description TEXT DEFAULT '',
-      image_url TEXT DEFAULT '',
-      target_url TEXT NOT NULL,
-      start_date TEXT NULL,
-      end_date TEXT NULL,
-      device_target TEXT DEFAULT 'all',
-      enabled INTEGER DEFAULT 1,
-      impressions INTEGER DEFAULT 0,
-      clicks INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS ai_chat_sessions (
-      id TEXT PRIMARY KEY,
-      user_id INTEGER NULL,
-      guest_token TEXT NULL,
-      title TEXT NOT NULL DEFAULT 'New Trip Plan',
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS ai_chat_messages (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      session_id TEXT NOT NULL,
-      role TEXT NOT NULL,
-      content TEXT NOT NULL,
-      itinerary_proposal TEXT NULL,
-      feedback INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (session_id) REFERENCES ai_chat_sessions(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS ai_prompt_versions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      version_num INTEGER NOT NULL,
-      system_prompt TEXT NOT NULL,
-      created_by INTEGER NULL,
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS news_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      slug TEXT NOT NULL UNIQUE,
-      summary TEXT NOT NULL,
-      content TEXT DEFAULT '',
-      category TEXT NOT NULL DEFAULT 'Tourism',
-      source_name TEXT NOT NULL,
-      source_url TEXT DEFAULT '',
-      image_url TEXT DEFAULT '',
-      related_place_ids TEXT DEFAULT '[]',
-      status TEXT DEFAULT 'published',
-      is_pinned INTEGER DEFAULT 0,
-      published_at TEXT DEFAULT (datetime('now')),
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS news_runs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trigger_type TEXT NOT NULL DEFAULT 'manual',
-      items_found INTEGER DEFAULT 0,
-      items_added INTEGER DEFAULT 0,
-      status TEXT NOT NULL DEFAULT 'success',
-      error_message TEXT DEFAULT '',
-      executed_at TEXT DEFAULT (datetime('now'))
-    );
-
-    CREATE TABLE IF NOT EXISTS trips (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      user_id INTEGER NULL,
-      title TEXT NOT NULL,
-      description TEXT DEFAULT '',
-      start_date TEXT DEFAULT '',
-      end_date TEXT DEFAULT '',
-      is_public INTEGER DEFAULT 0,
-      share_slug TEXT UNIQUE,
-      is_ai_planned INTEGER DEFAULT 0,
-      created_at TEXT DEFAULT (datetime('now')),
-      updated_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS trip_items (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      trip_id INTEGER NOT NULL,
-      place_id INTEGER NULL,
-      item_type TEXT DEFAULT 'place',
-      title TEXT NOT NULL,
-      notes TEXT DEFAULT '',
-      order_index INTEGER DEFAULT 0,
-      is_visited INTEGER DEFAULT 0,
-      target_date TEXT DEFAULT '',
-      created_at TEXT DEFAULT (datetime('now')),
-      FOREIGN KEY (trip_id) REFERENCES trips(id) ON DELETE CASCADE,
-      FOREIGN KEY (place_id) REFERENCES locations(id) ON DELETE SET NULL
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_events_place ON events(place_id);
-    CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type);
-    CREATE INDEX IF NOT EXISTS idx_events_created ON events(created_at);
-    CREATE INDEX IF NOT EXISTS idx_journeys_session ON journeys(session_id);
-    CREATE INDEX IF NOT EXISTS idx_ai_sessions_user ON ai_chat_sessions(user_id);
-    CREATE INDEX IF NOT EXISTS idx_ai_messages_session ON ai_chat_messages(session_id);
-    CREATE INDEX IF NOT EXISTS idx_news_published ON news_items(published_at);
-    CREATE INDEX IF NOT EXISTS idx_news_category ON news_items(category);
-    CREATE INDEX IF NOT EXISTS idx_news_status ON news_items(status);
-    CREATE INDEX IF NOT EXISTS idx_trips_user ON trips(user_id);
-    CREATE INDEX IF NOT EXISTS idx_trips_slug ON trips(share_slug);
-    CREATE INDEX IF NOT EXISTS idx_trip_items_trip ON trip_items(trip_id);
-    CREATE INDEX IF NOT EXISTS idx_trip_items_place ON trip_items(place_id);
   `);
 
-  // Safe non-destructive column additions for SQLite
-  const safeAlter = (table: string, colDef: string) => {
-    try {
-      database.exec(`ALTER TABLE ${table} ADD COLUMN ${colDef};`);
-    } catch {
-      // Column already exists
+  // Migrate reviews table to support moderation status if missing
+  try {
+    const reviewCols = database.prepare("PRAGMA table_info(reviews)").all() as { name: string }[];
+    const hasStatus = reviewCols.some((c) => c.name === 'status');
+    if (!hasStatus) {
+      database.exec("ALTER TABLE reviews ADD COLUMN status TEXT DEFAULT 'approved'");
     }
-  };
+  } catch (migError) {
+    console.error('Reviews status migration error:', migError);
+  }
 
-  safeAlter('places', "status TEXT DEFAULT 'published'");
-  safeAlter('places', 'submitted_by INTEGER NULL');
-  safeAlter('reviews', 'user_id INTEGER NULL');
-  safeAlter('reviews', "title TEXT DEFAULT ''");
-  safeAlter('reviews', "trip_type TEXT DEFAULT ''");
-  safeAlter('reviews', "visit_date TEXT DEFAULT ''");
-  safeAlter('reviews', 'helpful_count INTEGER DEFAULT 0');
-  safeAlter('hero_slides', "title_si TEXT DEFAULT ''");
-  safeAlter('hero_slides', "subtitle_en TEXT DEFAULT ''");
-  safeAlter('hero_slides', "subtitle_si TEXT DEFAULT ''");
-  safeAlter('region_slides', "title_si TEXT DEFAULT ''");
-}
+  const count = (database.prepare('SELECT COUNT(*) as count FROM places').get() as { count: number }).count;
+  if (count === 0) {
+    seedData(database);
+  }
 
-// -------------------------------------------------------------
-// Universal Query Execution Helpers
-// -------------------------------------------------------------
+  const slideCount = (database.prepare('SELECT COUNT(*) as count FROM hero_slides').get() as { count: number }).count;
+  if (slideCount === 0) {
+    seedHeroSlides(database);
+  }
 
-export type QueryParam = string | number | boolean | null | Date;
+  const regionSlideCount = (database.prepare('SELECT COUNT(*) as count FROM region_slides').get() as { count: number }).count;
+  if (regionSlideCount === 0) {
+    seedRegionSlides(database);
+  }
 
-export async function query<T = unknown>(
-  sql: string,
-  params: (QueryParam | undefined)[] = []
-): Promise<T[]> {
-  const cleanParams = params.map((p) => (p === undefined ? null : p));
-  if (isMySqlEnabled()) {
-    const pool = getPool();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [rows] = await pool.execute(sql, cleanParams as any);
-    return rows as T[];
-  } else {
-    const db = getDb();
-    const stmt = db.prepare(sql);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return stmt.all(...cleanParams as any) as T[];
+  const settingsCount = (database.prepare('SELECT COUNT(*) as count FROM site_settings').get() as { count: number }).count;
+  if (settingsCount === 0) {
+    seedSiteSettings(database);
   }
 }
 
-export async function queryOne<T = unknown>(
-  sql: string,
-  params: (QueryParam | undefined)[] = []
-): Promise<T | null> {
-  const rows = await query<T>(sql, params);
-  return rows.length > 0 ? rows[0] : null;
+function seedHeroSlides(database: Database.Database) {
+  const insert = database.prepare(
+    'INSERT INTO hero_slides (image_url, location, province, sort_order) VALUES (?, ?, ?, ?)'
+  );
+  const slides = [
+    ['https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=1920&q=90', 'Sigiriya Rock Fortress', 'Central Province', 0],
+    ['https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=1920&q=90', 'Southern Coastline', 'Southern Province', 1],
+    ['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=1920&q=90', 'Highland Mist', 'Central Province', 2],
+    ['https://images.unsplash.com/photo-1544735716-392fe2489ffa?w=1920&q=90', 'Highland Tea Trails', 'Central Province', 3],
+  ];
+  database.transaction(() => {
+    for (const [url, loc, prov, order] of slides) {
+      insert.run(url, loc, prov, order);
+    }
+  })();
 }
 
-export async function execute(
-  sql: string,
-  params: (QueryParam | undefined)[] = []
-): Promise<{ insertId: number; affectedRows: number }> {
-  const cleanParams = params.map((p) => (p === undefined ? null : p));
-  if (isMySqlEnabled()) {
-    const pool = getPool();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const [result] = (await pool.execute(sql, cleanParams as any)) as [mysql.ResultSetHeader, unknown];
-    return {
-      insertId: result.insertId || 0,
-      affectedRows: result.affectedRows || 0,
-    };
-  } else {
-    const db = getDb();
-    const stmt = db.prepare(sql);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const result = stmt.run(...cleanParams as any);
-    return {
-      insertId: Number(result.lastInsertRowid) || 0,
-      affectedRows: result.changes || 0,
-    };
-  }
+function seedRegionSlides(database: Database.Database) {
+  const insert = database.prepare(
+    'INSERT INTO region_slides (image_url, title, region, sort_order) VALUES (?, ?, ?, ?)'
+  );
+  const slides = [
+    ['https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=1200&q=85', 'Sigiriya Rock Fortress', 'Central Province', 0],
+    ['https://images.unsplash.com/photo-1544735716-392fe2489ffa?w=1200&q=85', 'Nine Arch Bridge, Ella', 'Uva Province', 1],
+    ['https://images.unsplash.com/photo-1552465011-b4e21bf6e79a?w=1200&q=85', 'Mirissa Coastal Palms', 'Southern Province', 2],
+    ['https://images.unsplash.com/photo-1546708973-b339540b5162?w=1200&q=85', 'Nuwara Eliya Tea Highlands', 'Central Province', 3],
+    ['https://images.unsplash.com/photo-1561731216-c3a4d99437d5?w=1200&q=85', 'Yala Wilderness Safari', 'Southern Province', 4],
+    ['https://images.unsplash.com/photo-1588598198321-9735fd52455b?w=1200&q=85', 'Diyaluma Waterfall Cascades', 'Uva Province', 5],
+  ];
+  database.transaction(() => {
+    for (const [url, title, reg, order] of slides) {
+      insert.run(url, title, reg, order);
+    }
+  })();
 }
 
-// -------------------------------------------------------------
-// Activity Logging & Audit
-// -------------------------------------------------------------
+function seedSiteSettings(database: Database.Database) {
+  const insert = database.prepare('INSERT OR REPLACE INTO site_settings (key, value) VALUES (?, ?)');
+  const defaultSettings: [string, string][] = [
+    ['region_tagline', 'Explore by region'],
+    ['region_title', 'Every corner of the island has a different story.'],
+    ['region_description', 'Choose a province, follow the map, and make your own route across Sri Lanka.'],
+    ['region_button_text', 'Open the map'],
+    ['region_button_link', '/map'],
+  ];
+  database.transaction(() => {
+    for (const [key, val] of defaultSettings) {
+      insert.run(key, val);
+    }
+  })();
+}
+
+function seedData(database: Database.Database) {
+  const insertPlace = database.prepare(`
+    INSERT INTO places (name, description, short_description, location, province, category, lat, lng, image_url, gallery, tips, best_time, entry_fee, distance_km, rating, review_count, featured)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const places = [
+    {
+      name: 'Sigiriya Rock Fortress',
+      description: "Rising dramatically 200 meters above the surrounding jungle, Sigiriya is one of Sri Lanka's most iconic landmarks. This ancient rock fortress was built by King Kashyapa in the 5th century AD and is a UNESCO World Heritage Site. The climb to the top rewards visitors with breathtaking panoramic views and features stunning ancient frescoes, a mirror wall, and the famous lion paws gateway.",
+      short_description: 'Ancient rock fortress rising 200m above the jungle — a UNESCO World Heritage wonder.',
+      location: 'Sigiriya, Matale District',
+      province: 'Central Province',
+      category: 'Ancient Sites',
+      lat: 7.957, lng: 80.7597,
+      image_url: 'https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1578662996442-48f60103fc96?w=800&q=80']),
+      tips: 'Start early morning before 7 AM to avoid crowds and heat. Bring plenty of water. The climb takes about 1.5 hours. Watch out for wasps near the frescoes.',
+      best_time: 'January to March, July to August',
+      entry_fee: 'USD 30 (Foreign Adults)',
+      distance_km: 170, rating: 4.8, review_count: 2847, featured: 1
+    },
+    {
+      name: 'Ella Rock',
+      description: 'Ella Rock offers one of the most rewarding hikes in Sri Lanka. At 1,041 meters above sea level, the summit provides spectacular 360-degree views of the surrounding valleys, tea plantations, and misty mountains. The hike takes you through lush jungle, past waterfalls, and tea estates, making it an unforgettable experience for adventure lovers.',
+      short_description: 'Stunning summit hike through tea estates with panoramic valley views.',
+      location: 'Ella, Badulla District',
+      province: 'Uva Province',
+      category: 'Mountains',
+      lat: 6.8731, lng: 81.047,
+      image_url: 'https://images.unsplash.com/photo-1576706374778-95a95efff7b1?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1576706374778-95a95efff7b1?w=800&q=80']),
+      tips: 'Start the hike from Ella town or follow the railway tracks. Hire a guide for the first time. The hike takes 3-4 hours return. Best in the early morning for clear views.',
+      best_time: 'December to April',
+      entry_fee: 'Free',
+      distance_km: 226, rating: 4.7, review_count: 1523, featured: 1
+    },
+    {
+      name: 'Nine Arch Bridge',
+      description: "The Nine Arch Bridge, also known as the 'Bridge in the Sky,' is a stunning colonial-era railway viaduct built entirely of stone, brick, and cement during British rule. Nestled between lush jungle and rolling hills, it's one of the best examples of colonial-era construction in Sri Lanka. Watching the blue train pass through creates a magical, cinematic moment.",
+      short_description: 'Iconic colonial railway bridge surrounded by jungle — magical when the train passes.',
+      location: 'Demodara, Ella',
+      province: 'Uva Province',
+      category: 'Hidden Gems',
+      lat: 6.876, lng: 81.054,
+      image_url: 'https://images.unsplash.com/photo-1535463731090-e34f4b5098c5?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1535463731090-e34f4b5098c5?w=800&q=80']),
+      tips: 'Check the train schedule beforehand. The best viewpoint is from the hillside. Arrive early. Trains pass at around 9:15 AM and 3:30 PM.',
+      best_time: 'Year-round (Dry season Dec-April preferred)',
+      entry_fee: 'Free',
+      distance_km: 222, rating: 4.9, review_count: 3102, featured: 1
+    },
+    {
+      name: 'Mirissa Beach',
+      description: "Mirissa is one of Sri Lanka's most beautiful and relaxed beaches, a crescent-shaped bay with golden sands, palm trees, and crystal-clear turquoise waters. Famous for incredible whale watching (Blue Whales and Sperm Whales), vibrant beach restaurants, and stunning sunsets. Parrot Rock, a small rocky outcrop you can swim to, adds to its charm.",
+      short_description: 'Golden crescent bay famous for whale watching, sunsets, and laid-back vibes.',
+      location: 'Mirissa, Matara District',
+      province: 'Southern Province',
+      category: 'Beaches',
+      lat: 5.9487, lng: 80.4669,
+      image_url: 'https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1506905925346-21bda4d32df4?w=800&q=80']),
+      tips: 'Book whale watching tours in advance (Nov-Apr is peak season). Visit Parrot Rock at sunrise for stunning photos. The beach gets crowded in December-January.',
+      best_time: 'November to April',
+      entry_fee: 'Free',
+      distance_km: 160, rating: 4.6, review_count: 2234, featured: 1
+    },
+    {
+      name: "Horton Plains National Park",
+      description: "Horton Plains is a UNESCO World Heritage Site and one of Sri Lanka's most unique ecosystems. Located at 2,100 meters above sea level, this highland plateau features rolling grasslands, cloud forests, waterfalls, and the dramatic 'World's End' — a sheer cliff dropping 870 meters. Endemic wildlife includes sambar deer, purple-faced langurs, and over 80 bird species.",
+      short_description: "UNESCO highland plateau with World's End cliff dropping 870m into misty valleys.",
+      location: 'Nuwara Eliya District',
+      province: 'Central Province',
+      category: 'Wildlife',
+      lat: 6.802, lng: 80.8045,
+      image_url: 'https://images.unsplash.com/photo-1586348943529-beaae6c28db9?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1586348943529-beaae6c28db9?w=800&q=80']),
+      tips: "Visit early morning (open from 6 AM) before clouds roll in to see World's End clearly. The 9.5 km circular trail takes 3-4 hours. Bring a jacket. No food available inside.",
+      best_time: 'January to April',
+      entry_fee: 'USD 15 (Foreigners)',
+      distance_km: 188, rating: 4.7, review_count: 1876, featured: 0
+    },
+    {
+      name: "Adam's Peak (Sri Pada)",
+      description: "Adam's Peak is a 2,243-meter sacred mountain considered holy by four religions — Buddhists, Hindus, Muslims, and Christians. The summit features a sacred footprint. The night climb, ascending 5,500 steps in darkness with lanterns, culminating in a breathtaking sunrise at the summit, is one of the most spiritual and visually stunning experiences in Asia.",
+      short_description: 'Sacred 2,243m peak — the night climb and sunrise at the summit is life-changing.',
+      location: 'Dalhousie, Ratnapura District',
+      province: 'Sabaragamuwa Province',
+      category: 'Mountains',
+      lat: 6.8096, lng: 80.4994,
+      image_url: 'https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1544551763-46a013bb70d5?w=800&q=80']),
+      tips: 'Start the climb around 2-3 AM to reach the summit for sunrise. Wear warm layers. The climb takes 3-4 hours. Pilgrimage season is December to May.',
+      best_time: 'December to May (Pilgrimage Season)',
+      entry_fee: 'Free',
+      distance_km: 118, rating: 4.9, review_count: 4521, featured: 1
+    },
+    {
+      name: 'Yala National Park',
+      description: "Yala is Sri Lanka's most famous wildlife sanctuary and the world's best place to spot wild leopards. The park covers 979 square kilometers and is home to elephants, sloth bears, crocodiles, and hundreds of bird species. Block 1 has the highest density of leopards in the world — a dream for wildlife photographers.",
+      short_description: "World's highest leopard density — home to elephants, bears, and incredible wildlife.",
+      location: 'Tissamaharama, Hambantota',
+      province: 'Southern Province',
+      category: 'Wildlife',
+      lat: 6.3731, lng: 81.5236,
+      image_url: 'https://images.unsplash.com/photo-1615729947596-a598e5de0ab3?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1615729947596-a598e5de0ab3?w=800&q=80']),
+      tips: 'Book jeep safaris in advance, especially Dec-Apr peak season. Early morning (6 AM) and late afternoon safaris have best wildlife sightings. Bring a zoom camera lens.',
+      best_time: 'February to July (Park closed September)',
+      entry_fee: 'USD 15 (Conservation levy) + Jeep hire',
+      distance_km: 300, rating: 4.8, review_count: 3677, featured: 0
+    },
+    {
+      name: 'Pidurangala Rock',
+      description: "Pidurangala is Sigiriya's lesser-known but arguably more rewarding neighbor. This ancient monastic rock site features a reclining Buddha carved into the rock, a cave monastery, and a challenging but short climb to a summit with the most spectacular view of Sigiriya Rock you will ever see. Dramatically cheaper and far less crowded.",
+      short_description: "Hidden gem — the best view of Sigiriya Rock, ancient monastery, at a fraction of the cost.",
+      location: 'Sigiriya, Matale District',
+      province: 'North Central Province',
+      category: 'Hidden Gems',
+      lat: 7.9583, lng: 80.7542,
+      image_url: 'https://images.unsplash.com/photo-1593693411515-c20261bcad6e?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1593693411515-c20261bcad6e?w=800&q=80']),
+      tips: 'Go for sunrise — arrive by 5:30 AM. Wear shoes with good grip, the final scramble is steep. The view of Sigiriya from the top is stunning, especially at golden hour.',
+      best_time: 'Year-round (Sunrise highly recommended)',
+      entry_fee: 'LKR 500',
+      distance_km: 172, rating: 4.9, review_count: 2156, featured: 1
+    },
+    {
+      name: 'Ravana Falls',
+      description: "Ravana Falls is one of the widest waterfalls in Sri Lanka, cascading dramatically from a height of 25 meters. Located on the Ella-Wellawaya road, the falls are shrouded in legend — said to be where the mythical King Ravana hid Princess Sita in a cave. The surrounding rock face is ancient and dramatic.",
+      short_description: 'Legendary 25m cascading waterfall with mythological ties to the Ramayana epic.',
+      location: 'Ella-Wellawaya Road, Badulla',
+      province: 'Uva Province',
+      category: 'Waterfalls',
+      lat: 6.9012, lng: 81.036,
+      image_url: 'https://images.unsplash.com/photo-1467173572719-f14b9fb86e5f?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1467173572719-f14b9fb86e5f?w=800&q=80']),
+      tips: 'Best visited during or just after rainy season (May-July) for powerful water flow. The pool at the base is swimmable in dry season. Can get crowded on weekends.',
+      best_time: 'May to September for full flow',
+      entry_fee: 'Free',
+      distance_km: 218, rating: 4.4, review_count: 1243, featured: 0
+    },
+    {
+      name: 'Galle Fort',
+      description: 'The Galle Fort is a UNESCO World Heritage Site built by the Portuguese in 1588 and extensively fortified by the Dutch. Walking within its colonial ramparts feels like stepping back in time — cobblestone streets, Dutch colonial architecture, boutique hotels, galleries, cafes, and stunning ocean views from the bastions at sunset.',
+      short_description: 'UNESCO colonial fortress city — cobblestone streets, ocean views, and a time-travel experience.',
+      location: 'Galle, Southern Province',
+      province: 'Southern Province',
+      category: 'Historical',
+      lat: 6.0269, lng: 80.2167,
+      image_url: 'https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1558618666-fcd25c85cd64?w=800&q=80']),
+      tips: 'Walk the full ramparts circuit at sunset for magical views. Explore smaller streets for hidden boutique shops and cafes. Avoid peak noon heat.',
+      best_time: 'December to April',
+      entry_fee: 'Free',
+      distance_km: 116, rating: 4.7, review_count: 3891, featured: 1
+    },
+    {
+      name: 'Dambulla Cave Temple',
+      description: "The Dambulla Cave Temple is the largest and best-preserved cave temple complex in Sri Lanka, a UNESCO World Heritage Site with over 2,000 years of history. The five caves house 153 statues of the Buddha, three statues of Sri Lankan kings, and stunning ancient ceiling murals covering 2,100 square meters.",
+      short_description: 'Ancient cave temples with 153 Buddha statues and 2,100 sqm of ancient ceiling murals.',
+      location: 'Dambulla, Matale District',
+      province: 'Central Province',
+      category: 'Ancient Sites',
+      lat: 7.8567, lng: 80.6492,
+      image_url: 'https://images.unsplash.com/photo-1544735716-392fe2489ffa?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1544735716-392fe2489ffa?w=800&q=80']),
+      tips: 'Remove shoes before entering. Dress modestly (shoulders and knees covered). Visit early morning to avoid crowds.',
+      best_time: 'January to April, July to September',
+      entry_fee: 'USD 15 (Foreigners)',
+      distance_km: 148, rating: 4.6, review_count: 2543, featured: 0
+    },
+    {
+      name: 'Knuckles Mountain Range',
+      description: "The Knuckles Mountain Range, also known as Dumbara Kanduvetiya, is a UNESCO World Heritage Site named for its series of misty peaks that resemble a clenched fist. This biodiversity hotspot protects endemic species found nowhere else on Earth. Trek through cloud forests, past cascading streams, traditional villages, and look-out points with views that stretch forever.",
+      short_description: 'Misty UNESCO-listed mountain range — a biodiversity hotspot with legendary trekking routes.',
+      location: 'Kandy District',
+      province: 'Central Province',
+      category: 'Mountains',
+      lat: 7.459, lng: 80.79,
+      image_url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&q=80',
+      gallery: JSON.stringify(['https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&q=80']),
+      tips: 'Hire a licensed guide — trails can be hard to follow. Bring waterproof clothing. Multi-day treks available with village homestays. Leeches are common in wet season, bring salt.',
+      best_time: 'January to April',
+      entry_fee: 'USD 15 (Permit required)',
+      distance_km: 95, rating: 4.8, review_count: 987, featured: 0
+    }
+  ];
+
+  const insertMany = database.transaction((items: typeof places) => {
+    for (const place of items) {
+      insertPlace.run(
+        place.name, place.description, place.short_description,
+        place.location, place.province, place.category,
+        place.lat, place.lng, place.image_url, place.gallery,
+        place.tips, place.best_time, place.entry_fee,
+        place.distance_km, place.rating, place.review_count, place.featured
+      );
+    }
+  });
+
+  insertMany(places);
+}
 
 export function logActivity(
   action: string,
@@ -567,19 +388,11 @@ export function logActivity(
   actor = 'Admin'
 ) {
   try {
-    if (isMySqlEnabled()) {
-      execute(
-        `INSERT INTO audit_log (action, entity_type, entity_id, details, user_role, created_at)
-         VALUES (?, ?, ?, ?, ?, NOW())`,
-        [action, entityType, String(entityId || ''), details, actor]
-      ).catch((err) => console.error('MySQL audit log error:', err));
-    } else {
-      const database = getDb();
-      database.prepare(`
-        INSERT INTO activity_logs (action, entity_type, entity_id, details, actor, created_at)
-        VALUES (?, ?, ?, ?, ?, datetime('now'))
-      `).run(action, entityType, String(entityId || ''), details, actor);
-    }
+    const database = getDb();
+    database.prepare(`
+      INSERT INTO activity_logs (action, entity_type, entity_id, details, actor, created_at)
+      VALUES (?, ?, ?, ?, ?, datetime('now'))
+    `).run(action, entityType, String(entityId || ''), details, actor);
   } catch (err) {
     console.error('Error logging activity:', err);
   }
@@ -608,10 +421,3 @@ export function clearActivityLogs() {
     return false;
   }
 }
-
-// Re-export decoupled domain access modules
-export * from './db/locations';
-export * from './db/users';
-export * from './db/nodes';
-export * from './db/admin';
-export * from './db/governance';

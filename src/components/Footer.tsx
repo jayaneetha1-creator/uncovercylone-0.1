@@ -3,7 +3,6 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Heart, ArrowUp, MapPin, ExternalLink, Compass } from 'lucide-react';
-import AdPlacement from './AdPlacement';
 
 export default function Footer() {
   const pathname = usePathname();
@@ -172,11 +171,6 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link href="/news" className="text-[#5B7385] hover:text-[#38A9F0] transition-colors">
-                  Tourism News & Updates
-                </Link>
-              </li>
-              <li>
                 <Link href="/favorites" className="text-[#5B7385] hover:text-[#38A9F0] transition-colors">
                   Saved Places
                 </Link>
@@ -194,9 +188,6 @@ export default function Footer() {
             </ul>
           </div>
         </div>
-
-        {/* Non-Disruptive Ad Placement 5: Footer Partner Strip */}
-        <AdPlacement placement="footer_strip" className="rounded-2xl my-6" />
 
         {/* Bottom Bar */}
         <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-[#5B7385]">

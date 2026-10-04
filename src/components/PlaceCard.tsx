@@ -5,11 +5,9 @@ import { ArrowRight, MapPin, Star } from 'lucide-react';
 import { Place } from '@/types';
 import PlaceImage from '@/components/PlaceImage';
 import WishlistButton from '@/components/WishlistButton';
-import { AddToTripButton } from '@/components/AddToTripButton';
 import { useLanguage } from '@/context/LanguageContext';
 import { useCurrency } from '@/context/CurrencyContext';
 import { useLocation } from '@/context/LocationContext';
-import { trackPlaceClick } from '@/lib/analytics';
 
 interface PlaceCardProps {
   place: Place;
@@ -45,7 +43,6 @@ export default function PlaceCard({ place, variant = 'grid' }: PlaceCardProps) {
     <div className="h-full w-full">
       <Link
         href={`/places/${place.id}`}
-        onClick={() => trackPlaceClick(place.id, 'place_card')}
         className={`group flex h-full flex-col overflow-hidden rounded-2xl border border-[#DCE8F2] bg-white transition-all duration-200 hover:border-[#38A9F0]/50 hover:shadow-lg hover:shadow-[#38A9F0]/10 hover:-translate-y-1 active:scale-[0.99] ${
           horizontal ? 'sm:flex-row' : ''
         }`}
@@ -76,9 +73,8 @@ export default function PlaceCard({ place, variant = 'grid' }: PlaceCardProps) {
             </span>
           </div>
 
-          {/* Action Buttons (Wishlist Heart + Add to Trip) (Top-Right) */}
-          <div className="absolute right-2.5 top-2.5 sm:right-3 sm:top-3 z-20 flex items-center gap-1.5">
-            <AddToTripButton place={place} variant="icon" />
+          {/* Wishlist Heart Button (Top-Right) */}
+          <div className="absolute right-2.5 top-2.5 sm:right-3 sm:top-3 z-20">
             <WishlistButton placeId={place.id} placeName={place.name} variant="icon" />
           </div>
 

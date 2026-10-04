@@ -7,7 +7,6 @@ interface WishlistContextType {
   savedIds: number[];
   isSaved: (id: number) => boolean;
   toggleWishlist: (id: number, placeName?: string) => void;
-  toggleSave: (id: number, placeName?: string) => void;
   clearWishlist: () => void;
   savedCount: number;
   isDrawerOpen: boolean;
@@ -19,21 +18,26 @@ const WishlistContext = createContext<WishlistContextType | undefined>(undefined
 const STORAGE_KEY = 'uncover_ceylon_wishlist';
 
 export function WishlistProvider({ children }: { children: ReactNode }) {
-  const [savedIds, setSavedIds] = useState<number[]>(() => {
-    if (typeof window === 'undefined') return [];
+  const [savedIds, setSavedIds] = useState<number[]>([]);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [isLoaded, setIsLoaded] = useState(false);
+
+  // Load from localStorage on mount
+  useEffect(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) return parsed;
+        if (Array.isArray(parsed)) {
+          setSavedIds(parsed);
+        }
       }
     } catch (e) {
       console.error('Failed to load wishlist from storage:', e);
+    } finally {
+      setIsLoaded(true);
     }
-    return [];
-  });
-  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const isLoaded = typeof window !== 'undefined';
+  }, []);
 
   // Save to localStorage on change
   useEffect(() => {
@@ -71,7 +75,6 @@ export function WishlistProvider({ children }: { children: ReactNode }) {
         savedIds,
         isSaved,
         toggleWishlist,
-        toggleSave: toggleWishlist,
         clearWishlist,
         savedCount: savedIds.length,
         isDrawerOpen,

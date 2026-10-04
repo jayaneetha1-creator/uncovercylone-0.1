@@ -6,15 +6,12 @@ import Image from 'next/image';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useWishlist } from '@/context/WishlistContext';
 import { useLanguage } from '@/context/LanguageContext';
-import { useTrips } from '@/context/TripContext';
 import { Place } from '@/types';
-import { X, Heart, Trash2, ArrowRight, MapPin, Star, Printer, Compass } from 'lucide-react';
+import { X, Heart, Trash2, ArrowRight, MapPin, Star, Printer } from 'lucide-react';
 import OfflineGuideModal from '@/components/OfflineGuideModal';
-import toast from 'react-hot-toast';
 
 export default function WishlistDrawer() {
   const { savedIds, isDrawerOpen, setIsDrawerOpen, toggleWishlist, clearWishlist } = useWishlist();
-  const { activeTrip, createTrip, addPlaceToTrip } = useTrips();
   const { t } = useLanguage();
   const [allPlaces, setAllPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(false);
@@ -22,31 +19,16 @@ export default function WishlistDrawer() {
 
   // Fetch places when drawer opens to populate wishlist items
   useEffect(() => {
-    if (!isDrawerOpen || allPlaces.length > 0) return;
-    let cancelled = false;
-
-    const loadPlaces = async () => {
-      await Promise.resolve();
-      if (cancelled) return;
+    if (isDrawerOpen && allPlaces.length === 0) {
       setLoading(true);
-      try {
-        const res = await fetch('/api/places');
-        const data = await res.json();
-        if (!cancelled && data.places) {
-          setAllPlaces(data.places);
-        }
-      } catch {
-        // ignore
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    loadPlaces();
-
-    return () => {
-      cancelled = true;
-    };
+      fetch('/api/places')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.places) setAllPlaces(data.places);
+        })
+        .catch(() => undefined)
+        .finally(() => setLoading(false));
+    }
   }, [isDrawerOpen, allPlaces.length]);
 
   const savedPlaces = allPlaces.filter((p) => savedIds.includes(p.id));
@@ -221,40 +203,6 @@ export default function WishlistDrawer() {
                   <span>{t('wishlist.total')}:</span>
                   <span className="font-bold text-slate-900">{savedPlaces.length} places</span>
                 </div>
-
-                {/* Add All to Trip Button */}
-                <button
-                  type="button"
-                  onClick={async () => {
-                    if (savedPlaces.length === 0) return;
-                    let target = activeTrip;
-                    if (!target) {
-                      target = await createTrip('My Saved Highlights');
-                    }
-                    if (!target) return;
-
-                    for (const p of savedPlaces) {
-                      await addPlaceToTrip(target.id, {
-                        id: p.id,
-                        name: p.name,
-                        name_si: (p as any).name_si,
-                        category: p.category,
-                        province: p.province,
-                        image_url: p.image_url,
-                        latitude: p.lat || 0,
-                        longitude: p.lng || 0,
-                        rating: p.rating,
-                        admission_fee: p.entry_fee,
-                      });
-                    }
-                    setIsDrawerOpen(false);
-                    toast.success(`Transferred ${savedPlaces.length} destinations to "${target.title}"! 🗺️`);
-                  }}
-                  className="w-full flex items-center justify-center gap-2 bg-[#DCEFFD] hover:bg-[#38A9F0] text-[#0284C7] hover:text-white font-bold py-2.5 rounded-xl text-xs sm:text-sm transition-all shadow-xs cursor-pointer"
-                >
-                  <Compass className="w-4 h-4" />
-                  <span>Transfer All to Trip Planner</span>
-                </button>
 
                 {/* PDF Itinerary Export Button */}
                 <button
